@@ -1,0 +1,455 @@
+---
+title: "Análisis Predictivo - Examen 1"
+author: "Sofia Weintraub"
+date: "9/14/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Introducción
+
+Se realizará una presentación gráfica y analítica de los datos con el fin de proporcionar un mayor conocimiento de las variables y su repercusión en el negocio, a partir de la selección, tratamiento y desarrollo de un modelo predictivo relacionado a la base elegida **Heart Disease**. La misma base contiene la información de distintos pacientes, en donde se registra el análisis que se le realiza al mismo, con el fin de poder concluir si el mismo tiene o no una enfermedad cardíaca.
+
+### Objetivo
+
+El objetivo de este trabajo será, entonces, poder entrenar al modelo para que pueda anticiparse a las posibles enfermedades cardíacas en los pacientes. De esta manera, se puede prevenir dichas enfermedades y le permitirá al especialista abarcarla de antemano.
+
+#### Fuente
+
+La base de datos fue obtenida de [Kaggle](https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction?select=heart.csv)]
+
+------------------------------------------------------------------------
+
+```{r}
+rm(list=ls())
+gc()
+```
+
+```{r}
+#Se cargan las librerias necesarias
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(frequency)
+library(knitr)
+```
+
+```{r}
+#Se lee la base de datos
+hf = read.csv("heart.csv", sep = ",")
+View(hf)
+```
+
+------------------------------------------------------------------------
+
+### Descripción de la Base de Datos
+
+La base cuenta con 918 registros y 12 variables, de las cuales 6 son integer, 5 son de tipo caracter y una es numérica
+
+#### Descripción de cada variable
+
+-   Age: Edad del paciente
+-   Sex: Sexo del paciente, siendo M masculino y F para femenino
+-   ChestPainType: Pueden ser 4 las respuestas
+    -   TA = typical angina
+    -   ATA = atypcial angina
+    -   NAP = non-anginal pain
+    -   ASY = asymptomatic
+-   RestingBP: Presión arterial en reposo. Entre 120 y 155 es lo normal para menores de 70 años
+-   Cholesterol: nivel de colesterol en la sangre. Un nivel entre 125 y 200 es saludable
+-   FastingBS: nivel de glucosa en sangre.
+    -   1 significa que este nivel es mayor a 120 mg/dl
+    -   0 significa que es menor.
+-   RestingECG: resultados del electrocardiograma. El resultado puede ser:
+    -   N = normal
+    -   ST = hay una anomalía
+    -   LVH = hipertropía ventricular izquierda
+-   MaxHR: valor maximo que alcanza el ritmo cardiaco del paciente
+-   ExerciseAngina: si existe dolor de pecho a la hora de hacer ejercicio\
+-   Oldpeak: depresión del ritmo cardíaco inducido por el ejercicio, en relación al reposo
+-   ST_Slope: ritmo cardíaco al hacer ejercicio. Puede ser:
+    -   up
+    -   flat
+    -   down
+-   HeartDisease: si el paciente presenta una enfermedad cardíaca (1) o no la presenta (0). Esta es la variable target.
+
+------------------------------------------------------------------------
+
+### Análisis Exploratorio
+
+#### Modificación de los datos
+
+```{r}
+hf$ExerciseAngina[hf$ExerciseAngina == "N"] <- "No"
+hf$ExerciseAngina[hf$ExerciseAngina == "Y"] <- "Yes"
+```
+
+Agrego una columna para que haya una variable de clasificacion sobre si el paciente está enfermo o no
+
+```{r}
+hf = hf %>% mutate(Enfermo = HeartDisease)
+hf = hf %>% mutate(Enfermo = case_when(Enfermo == 1 ~ "Yes", Enfermo == 0 ~ "No"))
+View(hf)
+summary(hf)
+```
+
+Agrego una variable que se llama Grupo, que me arroja a que grupo etario corresponde cada paciente
+
+```{r}
+Grupo = case_when(hf$Age >= 28 & hf$Age <= 39 ~ "Grupo 1", 
+                         hf$Age >= 40 & hf$Age <= 49    ~ "Grupo 2" , 
+                         hf$Age >= 50 & hf$Age <= 59   ~ "Grupo 3",
+                         hf$Age >= 60   ~ "Grupo 4")
+
+hf = hf %>% mutate(hf, Grupo)
+```
+
+##### Missings
+
+```{r}
+sapply(hf, function(x) sum(is.na(x)))
+```
+
+##### Outliers: de las variables numéricas
+
+```{r}
+boxplot(hf$Age, main = "Edad") 
+boxplot(hf$RestingBP, main = "Blood Pressure") 
+boxplot(hf$Cholesterol, main = "Cholesterol") 
+boxplot(hf$FastingBS, main = "Blood Sugar") 
+boxplot(hf$MaxHR, main = "Maximum Heart Rate") 
+boxplot(hf$Oldpeak, main = "Oldpeak") 
+```
+
+------------------------------------------------------------------------
+
+### Distribuciones
+
+Observo el historgrama de cada variable numérica
+```{r}
+ggplot(hf, aes(Age)) + 
+  geom_histogram(aes(fill=..count..), bins=10, color="white") +
+  geom_vline(aes(xintercept=mean(Age)), color="red") +
+  labs(title = "Histograma de Edad",
+       x = "Edades",
+       y = "Frecuencia") +
+  scale_fill_continuous(name="Frecuencia") +
+  theme_classic()
+
+ggplot(hf, aes(RestingBP)) + 
+  geom_histogram(aes(fill=..count..), bins=10, color="white") +
+  geom_vline(aes(xintercept=mean(RestingBP)), color="red") +
+  labs(title = "Histograma de BP",
+       x = "Presión Sanguínea",
+       y = "Frecuencia") +
+  scale_fill_continuous(name="Frecuencia") +
+  theme_classic()
+
+ggplot(hf, aes(Cholesterol)) + 
+  geom_histogram(aes(fill=..count..), bins=10, color="white") +
+  geom_vline(aes(xintercept=mean(Cholesterol)), color="red") +
+  labs(title = "Histograma del Colesterol",
+       x = "Colesterol",
+       y = "Frecuencia") +
+  scale_fill_continuous(name="Frecuencia") +
+  theme_classic()
+
+ggplot(hf, aes(MaxHR)) + 
+  geom_histogram(aes(fill=..count..), bins=10, color="white") +
+  geom_vline(aes(xintercept=mean(MaxHR)), color="red") +
+  labs(title = "Histograma del HR",
+       x = "HR",
+       y = "Frecuencia") +
+  scale_fill_continuous(name="Frecuencia") +
+  theme_classic()
+
+ggplot(hf, aes(Oldpeak)) + 
+  geom_histogram(aes(fill=..count..), bins=10, color="white") +
+  geom_vline(aes(xintercept=mean(Oldpeak)), color="red") +
+  labs(title = "Histograma del OP",
+       x = "OP",
+       y = "Frecuencia") +
+  scale_fill_continuous(name="Frecuencia") +
+  theme_classic()
+```
+
+
+
+Observo la distribución de los datos, separando enfermos de no enfermos
+```{r}
+
+ggplot(hf) +
+  aes(x = Enfermo, y = Age, color = Enfermo,xlab = "", ylab = "Age") +
+  geom_jitter() +
+  theme(legend.position = "none")
+
+ggplot(hf) +
+  aes(x = Enfermo, y = RestingBP, color = Enfermo,xlab = "", ylab = "BP") +
+  geom_jitter() +
+  theme(legend.position = "none")
+
+ggplot(hf) +
+  aes(x = Enfermo, y = Cholesterol, color = Enfermo,xlab = "", ylab = "Chol") + geom_jitter() +
+  theme(legend.position = "none")
+
+ggplot(hf) +
+  aes(x = Enfermo, y = FastingBS, color = Enfermo,xlab = "", ylab = "BS") +
+  geom_jitter() +
+  theme(legend.position = "none")
+
+ggplot(hf) +
+  aes(x = Enfermo, y = MaxHR, color = Enfermo,xlab = "", ylab = "HR") +
+  geom_jitter() +
+  theme(legend.position = "none")
+
+ggplot(hf) +
+  aes(x = Enfermo, y = Oldpeak, color = Enfermo,xlab = "", ylab = "Oldpeak") +
+  geom_jitter() +
+  theme(legend.position = "none")
+
+```
+
+
+
+Comparación de las distribuciones en cada categoría: enfermo o no enfermo
+
+```{r}
+#Edad
+gg =  ggplot(data = hf ) +  
+  geom_histogram(aes(x= Age, fill=Enfermo),bins = 29, alpha = 0.7) 
+ggplotly(gg)%>% 
+  layout(plot_bgcolor='#e5ecf6',   
+         xaxis = list(   
+           title='Age', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'),   
+         yaxis = list(   
+           title='Cantidad', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'))
+
+#Blood Pressure
+gg =  ggplot(data = hf ) +  
+  geom_histogram(aes(x= RestingBP, fill=Enfermo),bins = 29, alpha = 0.7) 
+ggplotly(gg)%>% 
+  layout(plot_bgcolor='#e5ecf6',   
+         xaxis = list(   
+           title='Blood Pressure', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'),   
+         yaxis = list(   
+           title='Cantidad', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'))
+
+#Cholesterol
+gg =  ggplot(data = hf ) +  
+  geom_histogram(aes(x= Cholesterol, fill=Enfermo),bins = 29, alpha = 0.7) 
+ggplotly(gg)%>% 
+  layout(plot_bgcolor='#e5ecf6',   
+         xaxis = list(   
+           title='Cholesterol', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'),   
+         yaxis = list(   
+           title='Cantidad', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'))
+
+#Blood Sugar
+gg =  ggplot(data = hf ) +  
+  geom_histogram(aes(x= FastingBS, fill=Enfermo),bins = 29, alpha = 0.7) 
+ggplotly(gg)%>% 
+  layout(plot_bgcolor='#e5ecf6',   
+         xaxis = list(   
+           title='Blood Sugar', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'),   
+         yaxis = list(   
+           title='Cantidad', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'))
+
+#Heart Rate
+gg =  ggplot(data = hf ) +  
+  geom_histogram(aes(x= MaxHR, fill=Enfermo),bins = 29, alpha = 0.7) 
+ggplotly(gg)%>% 
+  layout(plot_bgcolor='#e5ecf6',   
+         xaxis = list(   
+           title='HeartRate', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'),   
+         yaxis = list(   
+           title='Cantidad', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'))
+
+#Oldpeak
+gg =  ggplot(data = hf ) +  
+geom_histogram(aes(x= Oldpeak, fill=Enfermo),bins = 29, alpha = 0.7) 
+ggplotly(gg)%>% 
+  layout(plot_bgcolor='#e5ecf6',   
+         xaxis = list(   
+           title='Oldpeak', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'),   
+         yaxis = list(   
+           title='Cantidad', 
+           zerolinecolor = '#ffff',   
+           zerolinewidth = 2,   
+           gridcolor = 'ffff'))
+```
+
+------------------------------------------------------------------------
+
+Para poder empezar a sacar conclusiones y además observar el comportamiento tanto de la edad y del sexo frente a la enfermedad cardíaca, se realizan los siguientes gráficos:
+
+```{r}
+Edad = hf %>% group_by(Grupo,Enfermo) %>% summarise(n = n())
+
+Edad %>% ggplot(aes(x = Grupo, y=n, fill = Enfermo)) +
+  geom_col(position = "dodge") +
+  geom_text(
+    aes(label =n),
+    colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)
+  )+ 
+  scale_fill_manual(values=c("#FFC1C1", "#CD9B9B"))+
+  labs(y="Cantidad")
+```
+Se observa que el grupo 1, es decir, los pacientes que tienen entre 28 y 39 años incluidos, no tienen gran riesgo de presentar una enfermedad cardíaca, como sí lo tienen mayormente los del grupo 3. El grupo 3 lo conforman pacientes entre 50 y 59 años.
+
+
+```{r}
+Sexo = hf %>% group_by(Sex,Enfermo) %>% summarise(n = n())
+
+Sexo %>% ggplot(aes(x = Sex, y=n, fill = Enfermo)) +
+  geom_col(position = "dodge") +
+  geom_text(
+    aes(label =n),
+    colour = "black", size = 3,
+    vjust = 1.5, position = position_dodge(.9)
+  )+ 
+  scale_fill_manual(values=c("#FFC1C1", "#CD9B9B"))+
+  labs(y="Cantidad")
+```
+Es notorio que las mujeres se encuentran en menos riesgo de tener, o contrar, enfermedad cardíaca, al contrastar con los hombres.
+
+------------------------------------------------------------------------
+
+### Análisis de Correlación
+
+```{r}
+#Librerias
+library(tidyverse)
+library(hexbin)
+library(energy)
+library(dHSIC)
+library(sjstats)
+library(rstatix)
+library(ggpubr)
+library(rstatix)
+library(corrplot)
+```
+
+```{r}
+#Saco las variables que no son numéricas o integer
+hf1 = hf
+hf1$Sex = NULL
+hf1$ChestPainType = NULL
+hf1$RestingECG = NULL
+hf1$ExerciseAngina = NULL
+hf1$ST_Slope = NULL
+hf1$Enfermo = NULL
+hf1$Grupo = NULL
+hf1$HeartDisease = NULL
+hf1$FastingBS = NULL
+```
+
+#### Matriz de Correlación
+
+```{r}
+correlacion = cor(hf1)
+corrplot(correlacion, method="number")
+```
+
+Se puede observar que las correlaciones entre las variables son muy débiles, por lo que ninguna tiene una fuerte correlación entre sí, ya sea positiva o negativa
+
+#### Gráfico de Dispersión
+
+```{r}
+#Saco las categoricas y tambien Blood Sugar porque solo indica 0 y 1
+pairs(hf1, pch = 10,  cex = 0.5,
+      col = "coral",
+            lower.panel=NULL)
+```
+
+Como se comentó anteriormente, se vuelve a observar la falta de una correlación positiva o negativa entre variables.
+
+------------------------------------------------------------------------
+
+### Particionamiento de la Base
+
+```{r}
+hf2 = hf
+hf2$Enfermo = NULL
+
+set.seed(512);part = createDataPartition(y = hf2$HeartDisease, p=0.8, list=F)
+entreno = hf2[part,] 
+testeo = hf2[-part,]
+```
+
+##### Cantidad de registros en cada conjunto:
+
+```{r}
+dim(entreno)
+dim(testeo)
+```
+
+##### Cantidad de registros de cada categoría en los conjuntos:
+
+```{r}
+table(entreno$HeartDisease)
+table(testeo$HeartDisease)
+```
+
+##### Arbol de Decisión
+
+```{r}
+arbol = rpart(HeartDisease~.,entreno,method="class")
+rpart.plot(arbol , extra = 1 , type = 5 , cex = 0.35, box.palette = 0)
+```
+
+##### Matriz de Confusión
+
+```{r}
+pred = predict(arbol , testeo , type = "class")
+confusionMatrix(pred,as.factor(testeo$HeartDisease))
+```
+
+------------------------------------------------------------------------
+
+### Conclusiones
+
+Luego del análisis se puede concluir que este dataset tiene un gran potencial para su continuo uso, teniendo en cuenta la facilidad que tiene dicha base para ir actualizándose así como también para incorporar nuevas variables que resulten relevantes para el caso de estudio.
+
+Además, es una base que puede tener diversas aplicaciones, ya sea en clínicas, estudios, casos específicos. A futuro, se podrían agregar nuevas variables que sean circunstanciales para poder predecir, dado un paciente enfermo, el nivel de riesgo que el mismo tiene.
+
+En cuanto a lo observado, se podría decir que no hay una fuerte correlación entre las variables. Así como también se pudo ver que los hombres son más propensos a tener una enfermedad cardíaca, mientras que aquellas personas entre 50 y 59 años son los pacientes más expuestos.
+
+Si bien la base cuenta con la variable de presión arterial en reposo, la misma tiene un comportamiento similar ya sea de un paciente enfermo como no. Entonces, podría decirse que no es relevante la misma para el análisis
